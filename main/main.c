@@ -61,16 +61,22 @@
 #include <string.h>
 #include <ctype.h>
 
+/* Flash read/write capability for storing Non-volatile data */
+#include <hardware/flash.h>
+#include <hardware/sync.h>
+
 #include "EVE.h"
 
 #include "eve_example.h"
 
 /* CONSTANTS ***********************************************************************/
 
+#define DEBUG
+
 /**
- * @brief Filename to store touchscreen configuration.
+ * @brief Location in flash to store touchscreen configuration.
  */
-const char *config_file = "config.bin";
+#define FLASH_OFFSET_CONFIG (256 * 1024)
 
 /* LOCAL FUNCTIONS / INLINES *******************************************************/
 
@@ -84,17 +90,39 @@ void setup(void);
 //@{
 int8_t platform_calib_init(void)
 {
-    return 1;
+    return 0;
 }
 
 int8_t platform_calib_write(struct touchscreen_calibration *calib)
 {
-    return -1;
+#if (PICO_FLASH_SIZE_BYTES < FLASH_OFFSET_CONFIG + FLASH_SECTOR_SIZE)
+#error Configuration written above top of flash
+#endif
+    // Data to write to flash must be aligned to a flash page
+    uint8_t config[FLASH_PAGE_SIZE] __aligned(FLASH_PAGE_SIZE);
+    uint32_t ints = save_and_disable_interrupts();
+
+	calib->key = VALID_KEY_TOUCHSCREEN;
+    memset(config, 0xff, FLASH_PAGE_SIZE);
+    memcpy(config, calib, sizeof(struct touchscreen_calibration));
+
+    flash_range_erase(FLASH_OFFSET_CONFIG, FLASH_SECTOR_SIZE);
+    flash_range_program(FLASH_OFFSET_CONFIG, (const uint8_t *)config, FLASH_PAGE_SIZE);
+    restore_interrupts (ints);
+
+    return 0;
 }
 
 int8_t platform_calib_read(struct touchscreen_calibration *calib)
 {
-    return -1;
+    struct touchscreen_calibration *p = (struct touchscreen_calibration *)(XIP_BASE + FLASH_OFFSET_CONFIG);
+	if (p->key == VALID_KEY_TOUCHSCREEN)
+    {
+        memcpy(calib, p, sizeof(struct touchscreen_calibration));
+        return 0;
+    }
+
+    return -2;
 }
 //@}
 
@@ -114,9 +142,12 @@ void setup(void)
 {
     int ch = 0;
 
-    // Initialise USB serial port
+#ifdef DEBUG
+    // Initialise stdio ports as configured in CMakeLists.txt
     stdio_init_all();
+#endif
 
+    // Turn on the pico LED to show activity
     const uint LED_PIN = PICO_DEFAULT_LED_PIN;
     gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
