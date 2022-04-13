@@ -74,6 +74,12 @@ target_link_libraries(${PROJECT_NAME}
 # Create map/bin/hex/uf2 files.
 pico_add_extra_outputs(${PROJECT_NAME})
 
+add_custom_command(TARGET ${PROJECT_NAME}
+    POST_BUILD
+    COMMAND arm-none-eabi-size --format=berkeley ${PROJECT_NAME}.elf
+    VERBATIM
+)
+
 # Enable stdio on UART
 pico_enable_stdio_uart(${PROJECT_NAME} 1)
 # Enable stdio on USB
